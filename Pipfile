@@ -9,6 +9,8 @@ pymongo = "*"
 seaborn = "*"
 matplotlib = "*"
 jupyter = "*"
+networkx = "*"
+nltk = "*"
 
 [dev-packages]
 
