@@ -12,10 +12,11 @@ This repository includes two matching algorithms that are used for Pair Research
 
 ## Development and Analysis
 
-1. Run uv sync to setup your virtual environment and install packages.
+1. Run `uv sync` to set up your virtual environment and install packages.
 1. Activate environment using `source .venv/bin/activate`.
-1. Run pre-commit install to setup commit hooks.
-1. Run `jupyter notebook` to start a notebook server. Analysis notebooks are contained in the `analysis/` directory.
+1. Run `pre-commit install` to set up commit hooks for Python linting + formatting, and Markdown formatting.
+1. Run `jupyter notebook` to start a notebook server. Analysis notebooks are contained in the `sr_analysis/` directory.
+    1. You will need an `.env` with the MongoDB URI to the Pair Research database as `MONGO_URI=<URI>`.
 
 ## Usage
 
