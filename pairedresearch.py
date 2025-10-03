@@ -1,15 +1,18 @@
-from mwmatching import * 
-
 import sys
-if len(sys.argv) < 2: 
-    sys.stderr.write('Usage: python pairedresearch.py weights.txt \n')
-    sys.exit(1)
+from mwmatching import maximum_weighted_matching
 
-with open(sys.argv[1]) as x: f = x.readlines()
 
-# weights
-wm = eval(f[0]) 
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.stderr.write("Usage: python pairedresearch.py weights.txt\n")
+        sys.exit(1)
 
-matches = maxWeightMatching(wm)
+    with open(sys.argv[1]) as file:
+        lines = file.readlines()
 
-print(matches)
+    # weights
+    weights = eval(lines[0])
+
+    matches = maximum_weighted_matching(weights)
+
+    print(matches)

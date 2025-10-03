@@ -1,4 +1,5 @@
-"""Weighted maximum matching in general graphs.
+"""
+Weighted maximum matching in general graphs.
 
 The algorithm is taken from "Efficient Algorithms for Finding Maximum
 Matching in Graphs" by Zvi Galil, ACM Computing Surveys, 1986.
@@ -12,12 +13,23 @@ A C program for maximum weight matching by Ed Rothberg was used extensively
 to validate this new code.
 """
 
+from collections import deque
+from collections.abc import Generator
+
 # If assigned, DEBUG(str) is called with lots of debug messages.
-DEBUG = None
-"""def DEBUG(s):
+DEBUG_OUTPUT = False
+
+
+def DEBUG(s: str) -> None:
+    """Print debug output to stderr.
+
+    Args:
+        s (str): The message to print.
+    """
     from sys import stderr
-    print >>stderr, 'DEBUG:', s
-"""
+
+    print("DEBUG:", s, file=stderr)
+
 
 # Check delta2/delta3 computation after every substage;
 # only works on integer weights, slows down the algorithm to O(n^4).
@@ -27,7 +39,9 @@ CHECK_DELTA = False
 CHECK_OPTIMUM = True
 
 
-def maxWeightMatching(edges, maxcardinality=False):
+def maximum_weighted_matching(
+    edges: list[tuple[int, int, int | float]], maxcardinality: bool = False
+) -> list[int]:
     """Compute a maximum-weighted matching in the general undirected
     weighted graph given by "edges".  If "maxcardinality" is true,
     only maximum-cardinality matchings are considered as solutions.
@@ -56,12 +70,12 @@ def maxWeightMatching(edges, maxcardinality=False):
 
     # Deal swiftly with empty graphs.
     if not edges:
-        return [ ]
+        return []
 
     # Count vertices.
     nedge = len(edges)
     nvertex = 0
-    for (i, j, w) in edges:
+    for i, j, w in edges:
         assert i >= 0 and j >= 0 and i != j
         if i >= nvertex:
             nvertex = i + 1
@@ -69,27 +83,27 @@ def maxWeightMatching(edges, maxcardinality=False):
             nvertex = j + 1
 
     # Find the maximum edge weight.
-    maxweight = max(0, max([ wt for (i, j, wt) in edges ]))
+    maxweight = max(0, max([wt for (i, j, wt) in edges]))
 
     # If p is an edge endpoint,
     # endpoint[p] is the vertex to which endpoint p is attached.
     # Not modified by the algorithm.
-    endpoint = [ edges[p//2][p%2] for p in xrange(2*nedge) ]
+    endpoint = [edges[p // 2][p % 2] for p in range(2 * nedge)]
 
     # If v is a vertex,
     # neighbend[v] is the list of remote endpoints of the edges attached to v.
     # Not modified by the algorithm.
-    neighbend = [ [ ] for i in xrange(nvertex) ]
-    for k in xrange(len(edges)):
+    neighbend = [[] for i in range(nvertex)]
+    for k in range(len(edges)):
         (i, j, w) = edges[k]
-        neighbend[i].append(2*k+1)
-        neighbend[j].append(2*k)
+        neighbend[i].append(2 * k + 1)
+        neighbend[j].append(2 * k)
 
     # If v is a vertex,
     # mate[v] is the remote endpoint of its matched edge, or -1 if it is single
     # (i.e. endpoint[mate[v]] is v's partner vertex).
     # Initially all vertices are single; updated during augmentation.
-    mate = nvertex * [ -1 ]
+    mate = nvertex * [-1]
 
     # If b is a top-level blossom,
     # label[b] is 0 if b is unlabeled (free);
@@ -100,7 +114,7 @@ def maxWeightMatching(edges, maxcardinality=False):
     # If v is a vertex inside a T-blossom,
     # label[v] is 2 iff v is reachable from an S-vertex outside the blossom.
     # Labels are assigned during a stage and reset after each augmentation.
-    label = (2 * nvertex) * [ 0 ]
+    label = (2 * nvertex) * [0]
 
     # If b is a labeled top-level blossom,
     # labelend[b] is the remote endpoint of the edge through which b obtained
@@ -108,34 +122,34 @@ def maxWeightMatching(edges, maxcardinality=False):
     # If v is a vertex inside a T-blossom and label[v] == 2,
     # labelend[v] is the remote endpoint of the edge through which v is
     # reachable from outside the blossom.
-    labelend = (2 * nvertex) * [ -1 ]
+    labelend = (2 * nvertex) * [-1]
 
     # If v is a vertex,
     # inblossom[v] is the top-level blossom to which v belongs.
     # If v is a top-level vertex, v is itself a blossom (a trivial blossom)
     # and inblossom[v] == v.
     # Initially all vertices are top-level trivial blossoms.
-    inblossom = range(nvertex)
+    inblossom = list(range(nvertex))
 
     # If b is a sub-blossom,
     # blossomparent[b] is its immediate parent (sub-)blossom.
     # If b is a top-level blossom, blossomparent[b] is -1.
-    blossomparent = (2 * nvertex) * [ -1 ]
+    blossomparent = (2 * nvertex) * [-1]
 
     # If b is a non-trivial (sub-)blossom,
     # blossomchilds[b] is an ordered list of its sub-blossoms, starting with
     # the base and going round the blossom.
-    blossomchilds = (2 * nvertex) * [ None ]
+    blossomchilds = (2 * nvertex) * [None]
 
     # If b is a (sub-)blossom,
     # blossombase[b] is its base VERTEX (i.e. recursive sub-blossom).
-    blossombase = range(nvertex) + nvertex * [ -1 ]
+    blossombase = list(range(nvertex)) + nvertex * [-1]
 
     # If b is a non-trivial (sub-)blossom,
     # blossomendps[b] is a list of endpoints on its connecting edges,
     # such that blossomendps[b][i] is the local endpoint of blossomchilds[b][i]
     # on the edge that connects it to blossomchilds[b][wrap(i+1)].
-    blossomendps = (2 * nvertex) * [ None ]
+    blossomendps = (2 * nvertex) * [None]
 
     # If v is a free vertex (or an unreached vertex inside a T-blossom),
     # bestedge[v] is the edge to an S-vertex with least slack,
@@ -144,16 +158,16 @@ def maxWeightMatching(edges, maxcardinality=False):
     # bestedge[b] is the least-slack edge to a different S-blossom,
     # or -1 if there is no such edge.
     # This is used for efficient computation of delta2 and delta3.
-    bestedge = (2 * nvertex) * [ -1 ]
+    bestedge = (2 * nvertex) * [-1]
 
     # If b is a non-trivial top-level S-blossom,
     # blossombestedges[b] is a list of least-slack edges to neighbouring
     # S-blossoms, or None if no such list has been computed yet.
     # This is used for efficient computation of delta3.
-    blossombestedges = (2 * nvertex) * [ None ]
+    blossombestedges = (2 * nvertex) * [None]
 
     # List of currently unused blossom numbers.
-    unusedblossoms = range(nvertex, 2*nvertex)
+    unusedblossoms = list(range(nvertex, 2 * nvertex))
 
     # If v is a vertex,
     # dualvar[v] = 2 * u(v) where u(v) is the v's variable in the dual
@@ -162,23 +176,23 @@ def maxWeightMatching(edges, maxcardinality=False):
     # If b is a non-trivial blossom,
     # dualvar[b] = z(b) where z(b) is b's variable in the dual optimization
     # problem.
-    dualvar = nvertex * [ maxweight ] + nvertex * [ 0 ]
+    dualvar = nvertex * [maxweight] + nvertex * [0]
 
     # If allowedge[k] is true, edge k has zero slack in the optimization
     # problem; if allowedge[k] is false, the edge's slack may or may not
     # be zero.
-    allowedge = nedge * [ False ]
+    allowedge = nedge * [False]
 
     # Queue of newly discovered S-vertices.
-    queue = [ ]
+    queue = deque()
 
     # Return 2 * slack of edge k (does not work inside blossoms).
-    def slack(k):
+    def slack(k: int) -> int | float:
         (i, j, wt) = edges[k]
         return dualvar[i] + dualvar[j] - 2 * wt
 
     # Generate the leaf vertices of a blossom.
-    def blossomLeaves(b):
+    def blossom_leaves(b: int) -> Generator[int, None, None]:
         if b < nvertex:
             yield b
         else:
@@ -186,14 +200,15 @@ def maxWeightMatching(edges, maxcardinality=False):
                 if t < nvertex:
                     yield t
                 else:
-                    for v in blossomLeaves(t):
+                    for v in blossom_leaves(t):
                         yield v
 
     # Assign label t to the top-level blossom containing vertex w
     # and record the fact that w was reached through the edge with
     # remote endpoint p.
-    def assignLabel(w, t, p):
-        if DEBUG: DEBUG('assignLabel(%d,%d,%d)' % (w, t, p))
+    def assign_label(w: int, t: int, p: int) -> None:
+        if DEBUG_OUTPUT:
+            DEBUG(f"assign_label({w},{t},{p})")
         b = inblossom[w]
         assert label[w] == 0 and label[b] == 0
         label[w] = label[b] = t
@@ -201,22 +216,24 @@ def maxWeightMatching(edges, maxcardinality=False):
         bestedge[w] = bestedge[b] = -1
         if t == 1:
             # b became an S-vertex/blossom; add it(s vertices) to the queue.
-            queue.extend(blossomLeaves(b))
-            if DEBUG: DEBUG('PUSH ' + str(list(blossomLeaves(b))))
+            queue.extend(blossom_leaves(b))
+            if DEBUG_OUTPUT:
+                DEBUG(f"PUSH {list(blossom_leaves(b))}")
         elif t == 2:
             # b became a T-vertex/blossom; assign label S to its mate.
             # (If b is a non-trivial blossom, its base is the only vertex
             # with an external mate.)
             base = blossombase[b]
             assert mate[base] >= 0
-            assignLabel(endpoint[mate[base]], 1, mate[base] ^ 1)
+            assign_label(endpoint[mate[base]], 1, mate[base] ^ 1)
 
     # Trace back from vertices v and w to discover either a new blossom
     # or an augmenting path. Return the base vertex of the new blossom or -1.
-    def scanBlossom(v, w):
-        if DEBUG: DEBUG('scanBlossom(%d,%d)' % (v, w))
+    def scan_blossom(v: int, w: int) -> int:
+        if DEBUG_OUTPUT:
+            DEBUG(f"scan_blossom({v},{w})")
         # Trace back from v and w, placing breadcrumbs as we go.
-        path = [ ]
+        path = []
         base = -1
         while v != -1 or w != -1:
             # Look for a breadcrumb in v's blossom or put a new breadcrumb.
@@ -242,7 +259,7 @@ def maxWeightMatching(edges, maxcardinality=False):
             # Swap v and w so that we alternate between both paths.
             if w != -1:
                 v, w = w, v
-       # Remove breadcrumbs.
+        # Remove breadcrumbs.
         for b in path:
             label[b] = 1
         # Return base vertex, if we found one.
@@ -251,28 +268,30 @@ def maxWeightMatching(edges, maxcardinality=False):
     # Construct a new blossom with given base, containing edge k which
     # connects a pair of S vertices. Label the new blossom as S; set its dual
     # variable to zero; relabel its T-vertices to S and add them to the queue.
-    def addBlossom(base, k):
+    def add_blossom(base: int, k: int) -> None:
         (v, w, wt) = edges[k]
         bb = inblossom[base]
         bv = inblossom[v]
         bw = inblossom[w]
         # Create blossom.
         b = unusedblossoms.pop()
-        if DEBUG: DEBUG('addBlossom(%d,%d) (v=%d w=%d) -> %d' % (base, k, v, w, b))
+        if DEBUG_OUTPUT:
+            DEBUG(f"add_blossom({base},{k}) (v={v} w={w}) -> {b}")
         blossombase[b] = base
         blossomparent[b] = -1
         blossomparent[bb] = b
         # Make list of sub-blossoms and their interconnecting edge endpoints.
-        blossomchilds[b] = path = [ ]
-        blossomendps[b] = endps = [ ]
+        blossomchilds[b] = path = []
+        blossomendps[b] = endps = []
         # Trace back from v to base.
         while bv != bb:
             # Add bv to the new blossom.
             blossomparent[bv] = b
             path.append(bv)
             endps.append(labelend[bv])
-            assert (label[bv] == 2 or
-                    (label[bv] == 1 and labelend[bv] == mate[blossombase[bv]]))
+            assert label[bv] == 2 or (
+                label[bv] == 1 and labelend[bv] == mate[blossombase[bv]]
+            )
             # Trace one step back.
             assert labelend[bv] >= 0
             v = endpoint[labelend[bv]]
@@ -281,15 +300,16 @@ def maxWeightMatching(edges, maxcardinality=False):
         path.append(bb)
         path.reverse()
         endps.reverse()
-        endps.append(2*k)
+        endps.append(2 * k)
         # Trace back from w to base.
         while bw != bb:
             # Add bw to the new blossom.
             blossomparent[bw] = b
             path.append(bw)
             endps.append(labelend[bw] ^ 1)
-            assert (label[bw] == 2 or
-                    (label[bw] == 1 and labelend[bw] == mate[blossombase[bw]]))
+            assert label[bw] == 2 or (
+                label[bw] == 1 and labelend[bw] == mate[blossombase[bw]]
+            )
             # Trace one step back.
             assert labelend[bw] >= 0
             w = endpoint[labelend[bw]]
@@ -301,47 +321,50 @@ def maxWeightMatching(edges, maxcardinality=False):
         # Set dual variable to zero.
         dualvar[b] = 0
         # Relabel vertices.
-        for v in blossomLeaves(b):
+        for v in blossom_leaves(b):
             if label[inblossom[v]] == 2:
                 # This T-vertex now turns into an S-vertex because it becomes
                 # part of an S-blossom; add it to the queue.
                 queue.append(v)
             inblossom[v] = b
         # Compute blossombestedges[b].
-        bestedgeto = (2 * nvertex) * [ -1 ]
+        bestedgeto = (2 * nvertex) * [-1]
         for bv in path:
             if blossombestedges[bv] is None:
                 # This subblossom does not have a list of least-slack edges;
                 # get the information from the vertices.
-                nblists = [ [ p // 2 for p in neighbend[v] ]
-                            for v in blossomLeaves(bv) ]
+                nblists = [[p // 2 for p in neighbend[v]] for v in blossom_leaves(bv)]
             else:
                 # Walk this subblossom's least-slack edges.
-                nblists = [ blossombestedges[bv] ]
+                nblists = [blossombestedges[bv]]
             for nblist in nblists:
                 for k in nblist:
                     (i, j, wt) = edges[k]
                     if inblossom[j] == b:
                         i, j = j, i
                     bj = inblossom[j]
-                    if (bj != b and label[bj] == 1 and
-                        (bestedgeto[bj] == -1 or
-                         slack(k) < slack(bestedgeto[bj]))):
+                    if (
+                        bj != b
+                        and label[bj] == 1
+                        and (bestedgeto[bj] == -1 or slack(k) < slack(bestedgeto[bj]))
+                    ):
                         bestedgeto[bj] = k
             # Forget about least-slack edges of the subblossom.
             blossombestedges[bv] = None
             bestedge[bv] = -1
-        blossombestedges[b] = [ k for k in bestedgeto if k != -1 ]
+        blossombestedges[b] = [k for k in bestedgeto if k != -1]
         # Select bestedge[b].
         bestedge[b] = -1
         for k in blossombestedges[b]:
             if bestedge[b] == -1 or slack(k) < slack(bestedge[b]):
                 bestedge[b] = k
-        if DEBUG: DEBUG('blossomchilds[%d]=' % b + repr(blossomchilds[b]))
+        if DEBUG_OUTPUT:
+            DEBUG(f"blossomchilds[{b}]={blossomchilds[b]!r}")
 
     # Expand the given top-level blossom.
-    def expandBlossom(b, endstage):
-        if DEBUG: DEBUG('expandBlossom(%d,%d) %s' % (b, endstage, repr(blossomchilds[b])))
+    def expand_blossom(b: int, endstage: bool) -> None:
+        if DEBUG_OUTPUT:
+            DEBUG(f"expand_blossom({b},{endstage}) {blossomchilds[b]!r}")
         # Convert sub-blossoms into top-level blossoms.
         for s in blossomchilds[b]:
             blossomparent[s] = -1
@@ -349,9 +372,9 @@ def maxWeightMatching(edges, maxcardinality=False):
                 inblossom[s] = s
             elif endstage and dualvar[s] == 0:
                 # Recursively expand this sub-blossom.
-                expandBlossom(s, endstage)
+                expand_blossom(s, endstage)
             else:
-                for v in blossomLeaves(s):
+                for v in blossom_leaves(s):
                     inblossom[v] = s
         # If we expand a T-blossom during a stage, its sub-blossoms must be
         # relabeled.
@@ -379,14 +402,14 @@ def maxWeightMatching(edges, maxcardinality=False):
             while j != 0:
                 # Relabel the T-sub-blossom.
                 label[endpoint[p ^ 1]] = 0
-                label[endpoint[blossomendps[b][j-endptrick]^endptrick^1]] = 0
-                assignLabel(endpoint[p ^ 1], 2, p)
+                label[endpoint[blossomendps[b][j - endptrick] ^ endptrick ^ 1]] = 0
+                assign_label(endpoint[p ^ 1], 2, p)
                 # Step to the next S-sub-blossom and note its forward endpoint.
-                allowedge[blossomendps[b][j-endptrick]//2] = True
+                allowedge[blossomendps[b][j - endptrick] // 2] = True
                 j += jstep
-                p = blossomendps[b][j-endptrick] ^ endptrick
+                p = blossomendps[b][j - endptrick] ^ endptrick
                 # Step to the next T-sub-blossom.
-                allowedge[p//2] = True
+                allowedge[p // 2] = True
                 j += jstep
             # Relabel the base T-sub-blossom WITHOUT stepping through to
             # its mate (so don't call assignLabel).
@@ -406,17 +429,15 @@ def maxWeightMatching(edges, maxcardinality=False):
                     # neighbours; leave it.
                     j += jstep
                     continue
-                for v in blossomLeaves(bv):
-                    if label[v] != 0:
-                        break
                 # If the sub-blossom contains a reachable vertex, assign
                 # label T to the sub-blossom.
-                if label[v] != 0:
+                if any(label[v] != 0 for v in blossom_leaves(bv)):
+                    v = next(v for v in blossom_leaves(bv) if label[v] != 0)
                     assert label[v] == 2
                     assert inblossom[v] == bv
                     label[v] = 0
                     label[endpoint[mate[blossombase[bv]]]] = 0
-                    assignLabel(v, 2, labelend[v])
+                    assign_label(v, 2, labelend[v])
                 j += jstep
         # Recycle the blossom number.
         label[b] = labelend[b] = -1
@@ -428,8 +449,9 @@ def maxWeightMatching(edges, maxcardinality=False):
 
     # Swap matched/unmatched edges over an alternating path through blossom b
     # between vertex v and the base vertex. Keep blossom bookkeeping consistent.
-    def augmentBlossom(b, v):
-        if DEBUG: DEBUG('augmentBlossom(%d,%d)' % (b, v))
+    def augment_blossom(b: int, v: int) -> None:
+        if DEBUG_OUTPUT:
+            DEBUG(f"augment_blossom({b},{v})")
         # Bubble up through the blossom tree from vertex v to an immediate
         # sub-blossom of b.
         t = v
@@ -437,7 +459,7 @@ def maxWeightMatching(edges, maxcardinality=False):
             t = blossomparent[t]
         # Recursively deal with the first sub-blossom.
         if t >= nvertex:
-            augmentBlossom(t, v)
+            augment_blossom(t, v)
         # Decide in which direction we will go round the blossom.
         i = j = blossomchilds[b].index(t)
         if i & 1:
@@ -454,32 +476,35 @@ def maxWeightMatching(edges, maxcardinality=False):
             # Step to the next sub-blossom and augment it recursively.
             j += jstep
             t = blossomchilds[b][j]
-            p = blossomendps[b][j-endptrick] ^ endptrick
+            p = blossomendps[b][j - endptrick] ^ endptrick
             if t >= nvertex:
-                augmentBlossom(t, endpoint[p])
+                augment_blossom(t, endpoint[p])
             # Step to the next sub-blossom and augment it recursively.
             j += jstep
             t = blossomchilds[b][j]
             if t >= nvertex:
-                augmentBlossom(t, endpoint[p ^ 1])
+                augment_blossom(t, endpoint[p ^ 1])
             # Match the edge connecting those sub-blossoms.
             mate[endpoint[p]] = p ^ 1
             mate[endpoint[p ^ 1]] = p
-            if DEBUG: DEBUG('PAIR %d %d (k=%d)' % (endpoint[p], endpoint[p^1], p//2))
+            if DEBUG_OUTPUT:
+                DEBUG(f"PAIR {endpoint[p]} {endpoint[p ^ 1]} (k={p // 2})")
         # Rotate the list of sub-blossoms to put the new base at the front.
         blossomchilds[b] = blossomchilds[b][i:] + blossomchilds[b][:i]
-        blossomendps[b]  = blossomendps[b][i:]  + blossomendps[b][:i]
+        blossomendps[b] = blossomendps[b][i:] + blossomendps[b][:i]
         blossombase[b] = blossombase[blossomchilds[b][0]]
         assert blossombase[b] == v
 
     # Swap matched/unmatched edges over an alternating path between two
     # single vertices. The augmenting path runs through edge k, which
     # connects a pair of S vertices.
-    def augmentMatching(k):
+    def augment_matching(k: int) -> None:
         (v, w, wt) = edges[k]
-        if DEBUG: DEBUG('augmentMatching(%d) (v=%d w=%d)' % (k, v, w))
-        if DEBUG: DEBUG('PAIR %d %d (k=%d)' % (v, w, k))
-        for (s, p) in ((v, 2*k+1), (w, 2*k)):
+        if DEBUG_OUTPUT:
+            DEBUG(f"augmentMatching({k}) (v={v} w={w})")
+        if DEBUG_OUTPUT:
+            DEBUG(f"PAIR {v} {w} (k={k})")
+        for s, p in ((v, 2 * k + 1), (w, 2 * k)):
             # Match vertex s to remote endpoint p. Then trace back from s
             # until we find a single vertex, swapping matched and unmatched
             # edges as we go.
@@ -489,7 +514,7 @@ def maxWeightMatching(edges, maxcardinality=False):
                 assert labelend[bs] == mate[blossombase[bs]]
                 # Augment through the S-blossom from s to base.
                 if bs >= nvertex:
-                    augmentBlossom(bs, s)
+                    augment_blossom(bs, s)
                 # Update mate[s]
                 mate[s] = p
                 # Trace one step back.
@@ -506,16 +531,17 @@ def maxWeightMatching(edges, maxcardinality=False):
                 # Augment through the T-blossom from j to base.
                 assert blossombase[bt] == t
                 if bt >= nvertex:
-                    augmentBlossom(bt, j)
+                    augment_blossom(bt, j)
                 # Update mate[j]
                 mate[j] = labelend[bt]
                 # Keep the opposite endpoint;
                 # it will be assigned to mate[s] in the next step.
                 p = labelend[bt] ^ 1
-                if DEBUG: DEBUG('PAIR %d %d (k=%d)' % (s, t, p//2))
+                if DEBUG_OUTPUT:
+                    DEBUG(f"PAIR {s} {t} (k={p // 2})")
 
     # Verify that the optimum solution has been reached.
-    def verifyOptimum():
+    def verify_optimum() -> None:
         if maxcardinality:
             # Vertices may have negative dual;
             # find a constant non-negative number to add to all vertex duals.
@@ -527,18 +553,18 @@ def maxWeightMatching(edges, maxcardinality=False):
         assert min(dualvar[nvertex:]) >= 0
         # 0. all edges have non-negative slack and
         # 1. all matched edges have zero slack;
-        for k in xrange(nedge):
+        for k in range(nedge):
             (i, j, wt) = edges[k]
             s = dualvar[i] + dualvar[j] - 2 * wt
-            iblossoms = [ i ]
-            jblossoms = [ j ]
+            iblossoms = [i]
+            jblossoms = [j]
             while blossomparent[iblossoms[-1]] != -1:
                 iblossoms.append(blossomparent[iblossoms[-1]])
             while blossomparent[jblossoms[-1]] != -1:
                 jblossoms.append(blossomparent[jblossoms[-1]])
             iblossoms.reverse()
             jblossoms.reverse()
-            for (bi, bj) in zip(iblossoms, jblossoms):
+            for bi, bj in zip(iblossoms, jblossoms):
                 if bi != bj:
                     break
                 s += 2 * dualvar[bi]
@@ -547,10 +573,10 @@ def maxWeightMatching(edges, maxcardinality=False):
                 assert mate[i] // 2 == k and mate[j] // 2 == k
                 assert s == 0
         # 2. all single vertices have zero dual value;
-        for v in xrange(nvertex):
+        for v in range(nvertex):
             assert mate[v] >= 0 or dualvar[v] + vdualoffset == 0
         # 3. all blossoms with positive dual value are full.
-        for b in xrange(nvertex, 2*nvertex):
+        for b in range(nvertex, 2 * nvertex):
             if blossombase[b] >= 0 and dualvar[b] > 0:
                 assert len(blossomendps[b]) % 2 == 1
                 for p in blossomendps[b][1::2]:
@@ -559,8 +585,8 @@ def maxWeightMatching(edges, maxcardinality=False):
         # Ok.
 
     # Check optimized delta2 against a trivial computation.
-    def checkDelta2():
-        for v in xrange(nvertex):
+    def check_delta_2() -> None:
+        for v in range(nvertex):
             if label[inblossom[v]] == 0:
                 bd = None
                 bk = -1
@@ -572,19 +598,27 @@ def maxWeightMatching(edges, maxcardinality=False):
                         if bk == -1 or d < bd:
                             bk = k
                             bd = d
-                if DEBUG and (bestedge[v] != -1 or bk != -1) and (bestedge[v] == -1 or bd != slack(bestedge[v])):
-                    DEBUG('v=' + str(v) + ' bk=' + str(bk) + ' bd=' + str(bd) + ' bestedge=' + str(bestedge[v]) + ' slack=' + str(slack(bestedge[v])))
-                assert (bk == -1 and bestedge[v] == -1) or (bestedge[v] != -1 and bd == slack(bestedge[v]))
+                if (
+                    DEBUG
+                    and (bestedge[v] != -1 or bk != -1)
+                    and (bestedge[v] == -1 or bd != slack(bestedge[v]))
+                ):
+                    DEBUG(
+                        f"v={v} bk={bk} bd={bd} bestedge={bestedge[v]} slack={slack(bestedge[v])}"
+                    )
+                assert (bk == -1 and bestedge[v] == -1) or (
+                    bestedge[v] != -1 and bd == slack(bestedge[v])
+                )
 
     # Check optimized delta3 against a trivial computation.
-    def checkDelta3():
+    def check_delta_3() -> None:
         bk = -1
         bd = None
         tbk = -1
         tbd = None
-        for b in xrange(2 * nvertex):
+        for b in range(2 * nvertex):
             if blossomparent[b] == -1 and label[b] == 1:
-                for v in blossomLeaves(b):
+                for v in blossom_leaves(b):
                     for p in neighbend[v]:
                         k = p // 2
                         w = endpoint[p]
@@ -601,56 +635,56 @@ def maxWeightMatching(edges, maxcardinality=False):
                     if tbk == -1 or slack(bestedge[b]) < tbd:
                         tbk = bestedge[b]
                         tbd = slack(bestedge[b])
-        if DEBUG and bd != tbd:
-            DEBUG('bk=%d tbk=%d bd=%s tbd=%s' % (bk, tbk, repr(bd), repr(tbd)))
+        if DEBUG_OUTPUT and bd != tbd:
+            DEBUG(f"bk={bk} tbk={tbk} bd={bd!r} tbd={tbd!r}")
         assert bd == tbd
 
     # Main loop: continue until no further improvement is possible.
-    for t in xrange(nvertex):
-
+    for t in range(nvertex):
         # Each iteration of this loop is a "stage".
         # A stage finds an augmenting path and uses that to improve
         # the matching.
-        if DEBUG: DEBUG('STAGE %d' % t)
+        if DEBUG_OUTPUT:
+            DEBUG(f"STAGE {t}")
 
         # Remove labels from top-level blossoms/vertices.
-        label[:] = (2 * nvertex) * [ 0 ]
+        label[:] = (2 * nvertex) * [0]
 
         # Forget all about least-slack edges.
-        bestedge[:] = (2 * nvertex) * [ -1 ]
-        blossombestedges[nvertex:] = nvertex * [ None ]
+        bestedge[:] = (2 * nvertex) * [-1]
+        blossombestedges[nvertex:] = nvertex * [None]
 
         # Loss of labeling means that we can not be sure that currently
         # allowable edges remain allowable througout this stage.
-        allowedge[:] = nedge * [ False ]
+        allowedge[:] = nedge * [False]
 
         # Make queue empty.
-        queue[:] = [ ]
- 
+        queue.clear()
+
         # Label single blossoms/vertices with S and put them in the queue.
-        for v in xrange(nvertex):
+        for v in range(nvertex):
             if mate[v] == -1 and label[inblossom[v]] == 0:
-                assignLabel(v, 1, -1)
+                assign_label(v, 1, -1)
 
         # Loop until we succeed in augmenting the matching.
         augmented = 0
         while 1:
-
             # Each iteration of this loop is a "substage".
             # A substage tries to find an augmenting path;
             # if found, the path is used to improve the matching and
             # the stage ends. If there is no augmenting path, the
             # primal-dual method is used to pump some slack out of
             # the dual variables.
-            if DEBUG: DEBUG('SUBSTAGE')
+            if DEBUG_OUTPUT:
+                DEBUG("SUBSTAGE")
 
             # Continue labeling until all vertices which are reachable
             # through an alternating path have got a label.
             while queue and not augmented:
-
                 # Take an S vertex from the queue.
-                v = queue.pop()
-                if DEBUG: DEBUG('POP v=%d' % v)
+                v = queue.popleft()
+                if DEBUG_OUTPUT:
+                    DEBUG(f"POP v={v}")
                 assert label[inblossom[v]] == 1
 
                 # Scan its neighbours:
@@ -670,20 +704,20 @@ def maxWeightMatching(edges, maxcardinality=False):
                         if label[inblossom[w]] == 0:
                             # (C1) w is a free vertex;
                             # label w with T and label its mate with S (R12).
-                            assignLabel(w, 2, p ^ 1)
+                            assign_label(w, 2, p ^ 1)
                         elif label[inblossom[w]] == 1:
                             # (C2) w is an S-vertex (not in the same blossom);
                             # follow back-links to discover either an
                             # augmenting path or a new blossom.
-                            base = scanBlossom(v, w)
+                            base = scan_blossom(v, w)
                             if base >= 0:
                                 # Found a new blossom; add it to the blossom
                                 # bookkeeping and turn it into an S-blossom.
-                                addBlossom(base, k)
+                                add_blossom(base, k)
                             else:
                                 # Found an augmenting path; augment the
                                 # matching and end this stage.
-                                augmentMatching(k)
+                                augment_matching(k)
                                 augmented = 1
                                 break
                         elif label[w] == 0:
@@ -719,8 +753,8 @@ def maxWeightMatching(edges, maxcardinality=False):
 
             # Verify data structures for delta2/delta3 computation.
             if CHECK_DELTA:
-                checkDelta2()
-                checkDelta3()
+                check_delta_2()
+                check_delta_3()
 
             # Compute delta1: the minumum value of any vertex dual.
             if not maxcardinality:
@@ -729,7 +763,7 @@ def maxWeightMatching(edges, maxcardinality=False):
 
             # Compute delta2: the minimum slack on any edge between
             # an S-vertex and a free vertex.
-            for v in xrange(nvertex):
+            for v in range(nvertex):
                 if label[inblossom[v]] == 0 and bestedge[v] != -1:
                     d = slack(bestedge[v])
                     if deltatype == -1 or d < delta:
@@ -739,11 +773,10 @@ def maxWeightMatching(edges, maxcardinality=False):
 
             # Compute delta3: half the minimum slack on any edge between
             # a pair of S-blossoms.
-            for b in xrange(2 * nvertex):
-                if ( blossomparent[b] == -1 and label[b] == 1 and
-                     bestedge[b] != -1 ):
+            for b in range(2 * nvertex):
+                if blossomparent[b] == -1 and label[b] == 1 and bestedge[b] != -1:
                     kslack = slack(bestedge[b])
-                    if type(kslack) in (int, long):
+                    if isinstance(kslack, int):
                         assert (kslack % 2) == 0
                         d = kslack // 2
                     else:
@@ -754,10 +787,13 @@ def maxWeightMatching(edges, maxcardinality=False):
                         deltaedge = bestedge[b]
 
             # Compute delta4: minimum z variable of any T-blossom.
-            for b in xrange(nvertex, 2*nvertex):
-                if ( blossombase[b] >= 0 and blossomparent[b] == -1 and
-                     label[b] == 2 and
-                     (deltatype == -1 or dualvar[b] < delta) ):
+            for b in range(nvertex, 2 * nvertex):
+                if (
+                    blossombase[b] >= 0
+                    and blossomparent[b] == -1
+                    and label[b] == 2
+                    and (deltatype == -1 or dualvar[b] < delta)
+                ):
                     delta = dualvar[b]
                     deltatype = 4
                     deltablossom = b
@@ -771,14 +807,14 @@ def maxWeightMatching(edges, maxcardinality=False):
                 delta = max(0, min(dualvar[:nvertex]))
 
             # Update dual variables according to delta.
-            for v in xrange(nvertex):
+            for v in range(nvertex):
                 if label[inblossom[v]] == 1:
                     # S-vertex: 2*u = 2*u - 2*delta
                     dualvar[v] -= delta
                 elif label[inblossom[v]] == 2:
                     # T-vertex: 2*u = 2*u + 2*delta
                     dualvar[v] += delta
-            for b in xrange(nvertex, 2*nvertex):
+            for b in range(nvertex, 2 * nvertex):
                 if blossombase[b] >= 0 and blossomparent[b] == -1:
                     if label[b] == 1:
                         # top-level S-blossom: z = z + 2*delta
@@ -788,8 +824,9 @@ def maxWeightMatching(edges, maxcardinality=False):
                         dualvar[b] -= delta
 
             # Take action at the point where minimum delta occurred.
-            if DEBUG: DEBUG('delta%d=%f' % (deltatype, delta))
-            if deltatype == 1: 
+            if DEBUG_OUTPUT:
+                DEBUG(f"delta{deltatype}={delta:f}")
+            if deltatype == 1:
                 # No further improvement possible; optimum reached.
                 break
             elif deltatype == 2:
@@ -808,7 +845,7 @@ def maxWeightMatching(edges, maxcardinality=False):
                 queue.append(i)
             elif deltatype == 4:
                 # Expand the least-z blossom.
-                expandBlossom(deltablossom, False)
+                expand_blossom(deltablossom, False)
 
             # End of a this substage.
 
@@ -817,110 +854,322 @@ def maxWeightMatching(edges, maxcardinality=False):
             break
 
         # End of a stage; expand all S-blossoms which have dualvar = 0.
-        for b in xrange(nvertex, 2*nvertex):
-            if ( blossomparent[b] == -1 and blossombase[b] >= 0 and
-                 label[b] == 1 and dualvar[b] == 0 ):
-                expandBlossom(b, True)
+        for b in range(nvertex, 2 * nvertex):
+            if (
+                blossomparent[b] == -1
+                and blossombase[b] >= 0
+                and label[b] == 1
+                and dualvar[b] == 0
+            ):
+                expand_blossom(b, True)
 
     # Verify that we reached the optimum solution.
     if CHECK_OPTIMUM:
-        verifyOptimum()
+        verify_optimum()
 
     # Transform mate[] such that mate[v] is the vertex to which v is paired.
-    for v in xrange(nvertex):
+    for v in range(nvertex):
         if mate[v] >= 0:
             mate[v] = endpoint[mate[v]]
-    for v in xrange(nvertex):
+    for v in range(nvertex):
         assert mate[v] == -1 or mate[mate[v]] == v
 
     return mate
 
 
 # Unit tests
-if __name__ == '__main__':
-    import unittest, math
+if __name__ == "__main__":
+    import unittest
+    import math
 
     class MaxWeightMatchingTests(unittest.TestCase):
-
         def test10_empty(self):
             # empty input graph
-            self.assertEqual(maxWeightMatching([]), [])
+            self.assertEqual(maximum_weighted_matching([]), [])
 
         def test11_singleedge(self):
             # single edge
-            self.assertEqual(maxWeightMatching([ (0,1,1) ]), [1, 0])
+            self.assertEqual(maximum_weighted_matching([(0, 1, 1)]), [1, 0])
 
         def test12(self):
-            self.assertEqual(maxWeightMatching([ (1,2,10), (2,3,11) ]), [ -1, -1, 3, 2 ])
+            self.assertEqual(
+                maximum_weighted_matching([(1, 2, 10), (2, 3, 11)]), [-1, -1, 3, 2]
+            )
 
         def test13(self):
-            self.assertEqual(maxWeightMatching([ (1,2,5), (2,3,11), (3,4,5) ]), [ -1, -1, 3, 2, -1 ])
+            self.assertEqual(
+                maximum_weighted_matching([(1, 2, 5), (2, 3, 11), (3, 4, 5)]),
+                [-1, -1, 3, 2, -1],
+            )
 
         def test14_maxcard(self):
             # maximum cardinality
-            self.assertEqual(maxWeightMatching([ (1,2,5), (2,3,11), (3,4,5) ], True), [ -1, 2, 1, 4, 3 ])
+            self.assertEqual(
+                maximum_weighted_matching([(1, 2, 5), (2, 3, 11), (3, 4, 5)], True),
+                [-1, 2, 1, 4, 3],
+            )
 
         def test15_float(self):
             # floating point weigths
-            self.assertEqual(maxWeightMatching([ (1,2,math.pi), (2,3,math.exp(1)), (1,3,3.0), (1,4,math.sqrt(2.0)) ]), [ -1, 4, 3, 2, 1 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, math.pi),
+                        (2, 3, math.exp(1)),
+                        (1, 3, 3.0),
+                        (1, 4, math.sqrt(2.0)),
+                    ]
+                ),
+                [-1, 4, 3, 2, 1],
+            )
 
         def test16_negative(self):
             # negative weights
-            self.assertEqual(maxWeightMatching([ (1,2,2), (1,3,-2), (2,3,1), (2,4,-1), (3,4,-6) ], False), [ -1, 2, 1, -1, -1 ])
-            self.assertEqual(maxWeightMatching([ (1,2,2), (1,3,-2), (2,3,1), (2,4,-1), (3,4,-6) ], True), [ -1, 3, 4, 1, 2 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [(1, 2, 2), (1, 3, -2), (2, 3, 1), (2, 4, -1), (3, 4, -6)], False
+                ),
+                [-1, 2, 1, -1, -1],
+            )
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [(1, 2, 2), (1, 3, -2), (2, 3, 1), (2, 4, -1), (3, 4, -6)], True
+                ),
+                [-1, 3, 4, 1, 2],
+            )
 
         def test20_sblossom(self):
             # create S-blossom and use it for augmentation
-            self.assertEqual(maxWeightMatching([ (1,2,8), (1,3,9), (2,3,10), (3,4,7) ]), [ -1, 2, 1, 4, 3 ])
-            self.assertEqual(maxWeightMatching([ (1,2,8), (1,3,9), (2,3,10), (3,4,7), (1,6,5), (4,5,6) ]), [ -1, 6, 3, 2, 5, 4, 1 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [(1, 2, 8), (1, 3, 9), (2, 3, 10), (3, 4, 7)]
+                ),
+                [-1, 2, 1, 4, 3],
+            )
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [(1, 2, 8), (1, 3, 9), (2, 3, 10), (3, 4, 7), (1, 6, 5), (4, 5, 6)]
+                ),
+                [-1, 6, 3, 2, 5, 4, 1],
+            )
 
         def test21_tblossom(self):
             # create S-blossom, relabel as T-blossom, use for augmentation
-            self.assertEqual(maxWeightMatching([ (1,2,9), (1,3,8), (2,3,10), (1,4,5), (4,5,4), (1,6,3) ]), [ -1, 6, 3, 2, 5, 4, 1 ])
-            self.assertEqual(maxWeightMatching([ (1,2,9), (1,3,8), (2,3,10), (1,4,5), (4,5,3), (1,6,4) ]), [ -1, 6, 3, 2, 5, 4, 1 ])
-            self.assertEqual(maxWeightMatching([ (1,2,9), (1,3,8), (2,3,10), (1,4,5), (4,5,3), (3,6,4) ]), [ -1, 2, 1, 6, 5, 4, 3 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [(1, 2, 9), (1, 3, 8), (2, 3, 10), (1, 4, 5), (4, 5, 4), (1, 6, 3)]
+                ),
+                [-1, 6, 3, 2, 5, 4, 1],
+            )
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [(1, 2, 9), (1, 3, 8), (2, 3, 10), (1, 4, 5), (4, 5, 3), (1, 6, 4)]
+                ),
+                [-1, 6, 3, 2, 5, 4, 1],
+            )
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [(1, 2, 9), (1, 3, 8), (2, 3, 10), (1, 4, 5), (4, 5, 3), (3, 6, 4)]
+                ),
+                [-1, 2, 1, 6, 5, 4, 3],
+            )
 
         def test22_s_nest(self):
             # create nested S-blossom, use for augmentation
-            self.assertEqual(maxWeightMatching([ (1,2,9), (1,3,9), (2,3,10), (2,4,8), (3,5,8), (4,5,10), (5,6,6) ]), [ -1, 3, 4, 1, 2, 6, 5 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 9),
+                        (1, 3, 9),
+                        (2, 3, 10),
+                        (2, 4, 8),
+                        (3, 5, 8),
+                        (4, 5, 10),
+                        (5, 6, 6),
+                    ]
+                ),
+                [-1, 3, 4, 1, 2, 6, 5],
+            )
 
         def test23_s_relabel_nest(self):
             # create S-blossom, relabel as S, include in nested S-blossom
-            self.assertEqual(maxWeightMatching([ (1,2,10), (1,7,10), (2,3,12), (3,4,20), (3,5,20), (4,5,25), (5,6,10), (6,7,10), (7,8,8) ]), [ -1, 2, 1, 4, 3, 6, 5, 8, 7 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 10),
+                        (1, 7, 10),
+                        (2, 3, 12),
+                        (3, 4, 20),
+                        (3, 5, 20),
+                        (4, 5, 25),
+                        (5, 6, 10),
+                        (6, 7, 10),
+                        (7, 8, 8),
+                    ]
+                ),
+                [-1, 2, 1, 4, 3, 6, 5, 8, 7],
+            )
 
         def test24_s_nest_expand(self):
             # create nested S-blossom, augment, expand recursively
-            self.assertEqual(maxWeightMatching([ (1,2,8), (1,3,8), (2,3,10), (2,4,12), (3,5,12), (4,5,14), (4,6,12), (5,7,12), (6,7,14), (7,8,12) ]), [ -1, 2, 1, 5, 6, 3, 4, 8, 7 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 8),
+                        (1, 3, 8),
+                        (2, 3, 10),
+                        (2, 4, 12),
+                        (3, 5, 12),
+                        (4, 5, 14),
+                        (4, 6, 12),
+                        (5, 7, 12),
+                        (6, 7, 14),
+                        (7, 8, 12),
+                    ]
+                ),
+                [-1, 2, 1, 5, 6, 3, 4, 8, 7],
+            )
 
         def test25_s_t_expand(self):
             # create S-blossom, relabel as T, expand
-            self.assertEqual(maxWeightMatching([ (1,2,23), (1,5,22), (1,6,15), (2,3,25), (3,4,22), (4,5,25), (4,8,14), (5,7,13) ]), [ -1, 6, 3, 2, 8, 7, 1, 5, 4 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 23),
+                        (1, 5, 22),
+                        (1, 6, 15),
+                        (2, 3, 25),
+                        (3, 4, 22),
+                        (4, 5, 25),
+                        (4, 8, 14),
+                        (5, 7, 13),
+                    ]
+                ),
+                [-1, 6, 3, 2, 8, 7, 1, 5, 4],
+            )
 
         def test26_s_nest_t_expand(self):
             # create nested S-blossom, relabel as T, expand
-            self.assertEqual(maxWeightMatching([ (1,2,19), (1,3,20), (1,8,8), (2,3,25), (2,4,18), (3,5,18), (4,5,13), (4,7,7), (5,6,7) ]), [ -1, 8, 3, 2, 7, 6, 5, 4, 1 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 19),
+                        (1, 3, 20),
+                        (1, 8, 8),
+                        (2, 3, 25),
+                        (2, 4, 18),
+                        (3, 5, 18),
+                        (4, 5, 13),
+                        (4, 7, 7),
+                        (5, 6, 7),
+                    ]
+                ),
+                [-1, 8, 3, 2, 7, 6, 5, 4, 1],
+            )
 
         def test30_tnasty_expand(self):
             # create blossom, relabel as T in more than one way, expand, augment
-            self.assertEqual(maxWeightMatching([ (1,2,45), (1,5,45), (2,3,50), (3,4,45), (4,5,50), (1,6,30), (3,9,35), (4,8,35), (5,7,26), (9,10,5) ]), [ -1, 6, 3, 2, 8, 7, 1, 5, 4, 10, 9 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 45),
+                        (1, 5, 45),
+                        (2, 3, 50),
+                        (3, 4, 45),
+                        (4, 5, 50),
+                        (1, 6, 30),
+                        (3, 9, 35),
+                        (4, 8, 35),
+                        (5, 7, 26),
+                        (9, 10, 5),
+                    ]
+                ),
+                [-1, 6, 3, 2, 8, 7, 1, 5, 4, 10, 9],
+            )
 
         def test31_tnasty2_expand(self):
             # again but slightly different
-            self.assertEqual(maxWeightMatching([ (1,2,45), (1,5,45), (2,3,50), (3,4,45), (4,5,50), (1,6,30), (3,9,35), (4,8,26), (5,7,40), (9,10,5) ]), [ -1, 6, 3, 2, 8, 7, 1, 5, 4, 10, 9 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 45),
+                        (1, 5, 45),
+                        (2, 3, 50),
+                        (3, 4, 45),
+                        (4, 5, 50),
+                        (1, 6, 30),
+                        (3, 9, 35),
+                        (4, 8, 26),
+                        (5, 7, 40),
+                        (9, 10, 5),
+                    ]
+                ),
+                [-1, 6, 3, 2, 8, 7, 1, 5, 4, 10, 9],
+            )
 
         def test32_t_expand_leastslack(self):
             # create blossom, relabel as T, expand such that a new least-slack S-to-free edge is produced, augment
-            self.assertEqual(maxWeightMatching([ (1,2,45), (1,5,45), (2,3,50), (3,4,45), (4,5,50), (1,6,30), (3,9,35), (4,8,28), (5,7,26), (9,10,5) ]), [ -1, 6, 3, 2, 8, 7, 1, 5, 4, 10, 9 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 45),
+                        (1, 5, 45),
+                        (2, 3, 50),
+                        (3, 4, 45),
+                        (4, 5, 50),
+                        (1, 6, 30),
+                        (3, 9, 35),
+                        (4, 8, 28),
+                        (5, 7, 26),
+                        (9, 10, 5),
+                    ]
+                ),
+                [-1, 6, 3, 2, 8, 7, 1, 5, 4, 10, 9],
+            )
 
         def test33_nest_tnasty_expand(self):
             # create nested blossom, relabel as T in more than one way, expand outer blossom such that inner blossom ends up on an augmenting path
-            self.assertEqual(maxWeightMatching([ (1,2,45), (1,7,45), (2,3,50), (3,4,45), (4,5,95), (4,6,94), (5,6,94), (6,7,50), (1,8,30), (3,11,35), (5,9,36), (7,10,26), (11,12,5) ]), [ -1, 8, 3, 2, 6, 9, 4, 10, 1, 5, 7, 12, 11 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 45),
+                        (1, 7, 45),
+                        (2, 3, 50),
+                        (3, 4, 45),
+                        (4, 5, 95),
+                        (4, 6, 94),
+                        (5, 6, 94),
+                        (6, 7, 50),
+                        (1, 8, 30),
+                        (3, 11, 35),
+                        (5, 9, 36),
+                        (7, 10, 26),
+                        (11, 12, 5),
+                    ]
+                ),
+                [-1, 8, 3, 2, 6, 9, 4, 10, 1, 5, 7, 12, 11],
+            )
 
         def test34_nest_relabel_expand(self):
             # create nested S-blossom, relabel as S, expand recursively
-            self.assertEqual(maxWeightMatching([ (1,2,40), (1,3,40), (2,3,60), (2,4,55), (3,5,55), (4,5,50), (1,8,15), (5,7,30), (7,6,10), (8,10,10), (4,9,30) ]), [ -1, 2, 1, 5, 9, 3, 7, 6, 10, 4, 8 ])
+            self.assertEqual(
+                maximum_weighted_matching(
+                    [
+                        (1, 2, 40),
+                        (1, 3, 40),
+                        (2, 3, 60),
+                        (2, 4, 55),
+                        (3, 5, 55),
+                        (4, 5, 50),
+                        (1, 8, 15),
+                        (5, 7, 30),
+                        (7, 6, 10),
+                        (8, 10, 10),
+                        (4, 9, 30),
+                    ]
+                ),
+                [-1, 2, 1, 5, 9, 3, 7, 6, 10, 4, 8],
+            )
 
     CHECK_DELTA = True
     unittest.main()
-
-# end

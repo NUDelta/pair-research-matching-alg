@@ -1,16 +1,12 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import sys
 import json
 from copy import deepcopy
-from mwmatching import *
+from mwmatching import maximum_weighted_matching
 from stable_roommates import create_preference_matrix
 from stable_roommates import stable_matching_wrapper as sr_matching
 
 
-def create_remaining_user_mapping(partial_matching):
+def create_remaining_user_mapping(partial_matching: list[int]) -> dict[str, int]:
     """
     Remaps indices of users who were not matched in a partial matching (match of -1) to 0-n values.
 
@@ -31,7 +27,9 @@ def create_remaining_user_mapping(partial_matching):
     return index_remapping
 
 
-def remove_paired_users(graph, user_remapping):
+def remove_paired_users(
+    graph: list[list], user_remapping: dict[str, int]
+) -> list[list]:
     """
     Takes an undirected graph and removes any users who are already matched.
 
@@ -50,7 +48,9 @@ def remove_paired_users(graph, user_remapping):
         from_person = output_graph[edge_index][0]
         to_person = output_graph[edge_index][1]
 
-        if not (str(from_person) in user_remapping and str(to_person) in user_remapping):
+        if not (
+            str(from_person) in user_remapping and str(to_person) in user_remapping
+        ):
             output_graph[edge_index][2] = None
 
     # remove any edges with None weight
@@ -59,7 +59,9 @@ def remove_paired_users(graph, user_remapping):
     return output_graph
 
 
-def remap_remaining_users(graph, user_remapping):
+def remap_remaining_users(
+    graph: list[list], user_remapping: dict[str, int]
+) -> list[list]:
     """
     Remaps indices from undirected graph to new user remapping as follows:
         graph: [[1, 4, 10], [3, 4, 9], [15, 10, 1]]
@@ -85,7 +87,11 @@ def remap_remaining_users(graph, user_remapping):
     return output_graph
 
 
-def combine_matchings(partial_stable_matching, partial_mwm_matching, user_remapping):
+def combine_matchings(
+    partial_stable_matching: list[int],
+    partial_mwm_matching: list[int],
+    user_remapping: dict[str, int],
+) -> list[int]:
     """
     Combines results from partial stable matching and mwm run on unstable users.
 
@@ -113,7 +119,7 @@ def combine_matchings(partial_stable_matching, partial_mwm_matching, user_remapp
     return output_matching
 
 
-def verify_matching(matching):
+def verify_matching(matching: list[int]) -> bool:
     """
     Verifies if a matching is valid.
         Matching may only have an unmatched person if its odd.
@@ -141,7 +147,7 @@ def verify_matching(matching):
 
     # check if all values are present
     if matching_length % 2 == 0:
-        target_values_set = set([x for x in range(matching_length)])
+        target_values_set = set(range(matching_length))
         if matching_value_set != target_values_set:
             return False
     else:
@@ -151,7 +157,12 @@ def verify_matching(matching):
     return True
 
 
-def create_matching_output(graphs, handle_odd_method='remove', remove_all=True, debug=False):
+def create_matching_output(
+    graphs: dict,
+    handle_odd_method: str = "remove",
+    remove_all: bool = True,
+    debug: bool = False,
+) -> dict:
     """
     Given a weighted directed and undirected graph, compute a matching.
         First, attempt to make a fully stable matching. If that fails, take the partially stable matching and combine
@@ -173,20 +184,20 @@ def create_matching_output(graphs, handle_odd_method='remove', remove_all=True, 
             mwm_result_processed: mwm run on unstable portion of matching. [] if matching was fully stable.
     """
     # compute a stable roommates matching
-    preference_matrix = create_preference_matrix(graphs['directed_graph'])
-    stable_result, is_fully_stable, stable_debug = sr_matching(preference_matrix,
-                                                               handle_odd_method=handle_odd_method,
-                                                               remove_all=remove_all)
+    preference_matrix = create_preference_matrix(graphs["directed_graph"])
+    stable_result, is_fully_stable, stable_debug = sr_matching(
+        preference_matrix, handle_odd_method=handle_odd_method, remove_all=remove_all
+    )
 
     # prepare output dict
     output_dict = {
-        'matching': stable_result,
-        'fully_stable': is_fully_stable,
-        'stable_debug': stable_debug,
-        'stable_result': stable_result,
-        'mwm_result_full': maxWeightMatching(graphs['undirected_graph']),
-        'mwm_result_partial': [],
-        'mwm_remap_dict': {}
+        "matching": stable_result,
+        "fully_stable": is_fully_stable,
+        "stable_debug": stable_debug,
+        "stable_result": stable_result,
+        "mwm_result_full": maximum_weighted_matching(graphs["undirected_graph"]),
+        "mwm_result_partial": [],
+        "mwm_remap_dict": {},
     }
 
     # if not fully stable, adjust the undirected graph and run MWM
@@ -195,24 +206,30 @@ def create_matching_output(graphs, handle_odd_method='remove', remove_all=True, 
         remaining_user_mapping = create_remaining_user_mapping(stable_result)
 
         # remove paired users from undirected graph
-        unpaired_undirected_graph = remove_paired_users(graphs['undirected_graph'], remaining_user_mapping)
+        unpaired_undirected_graph = remove_paired_users(
+            graphs["undirected_graph"], remaining_user_mapping
+        )
 
         # remap users before running mwm
-        remapped_undirected_graph = remap_remaining_users(unpaired_undirected_graph, remaining_user_mapping)
+        remapped_undirected_graph = remap_remaining_users(
+            unpaired_undirected_graph, remaining_user_mapping
+        )
 
         # get mwm result with remapped graph
-        mwm_result = maxWeightMatching(remapped_undirected_graph)
+        mwm_result = maximum_weighted_matching(remapped_undirected_graph)
 
         # combine results from stable roommates and mwm
-        output_matching = combine_matchings(stable_result, mwm_result, remaining_user_mapping)
+        output_matching = combine_matchings(
+            stable_result, mwm_result, remaining_user_mapping
+        )
 
         # add to output dict if output_matching is correct, otherwise replace with mwm
-        output_dict['matching'] = output_matching
-        output_dict['mwm_result_partial'] = mwm_result
-        output_dict['mwm_remap_dict'] = remaining_user_mapping
+        output_dict["matching"] = output_matching
+        output_dict["mwm_result_partial"] = mwm_result
+        output_dict["mwm_remap_dict"] = remaining_user_mapping
 
         if not verify_matching(output_matching) and debug:
-            print('Combined matching not valid. {}'.format(output_matching))
+            print(f"Combined matching not valid. {output_matching}")
 
     return output_dict
 
@@ -222,7 +239,9 @@ if __name__ == "__main__":
     input_pair_research = eval(sys.stdin.readlines()[0])
 
     # create matching output
-    output = create_matching_output(input_pair_research, handle_odd_method='remove', remove_all=True, debug=False)
+    output = create_matching_output(
+        input_pair_research, handle_odd_method="remove", remove_all=True, debug=False
+    )
 
     # print data out so meteor app can retrieve it
     print(json.dumps(output))
