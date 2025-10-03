@@ -8,6 +8,8 @@ dependencies = [
     "seaborn",
     "matplotlib",
     "jupyter",
+    "dotenv>=0.9.9",
+    "tqdm>=4.67.1",
 ]
 
 [dependency-groups]
